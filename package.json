@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "node src/index.js"
+    "dev": "node build/index.js"
   },
   "dependencies": {
     "fastify": "^4.17.0"
