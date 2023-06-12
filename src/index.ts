@@ -28,144 +28,84 @@ function generateUUID(): string {
   return Math.random().toString(36).substr(2, 9);
 }
 
-// WebSocketを通じて他の参加者にユーザー一覧の更新を通知する関数
-function notifyRoomUserListUpdate(room: Room) {
-  const message = {
-    type: "onRoomUserListUpdate",
-    users: room.users,
-  };
+app.get("/", { websocket: true }, (connection, req) => {
+  console.log("fastify websocket connection...");
+  connection.socket.on("message", (message) => {
+    const data = JSON.parse(message.toString());
 
-  const stringifiedMessage = JSON.stringify(message);
+    // 部屋作成リクエスト
+    if (data.type === "createRoom") {
+      const { userId, username } = data.payload;
 
-  app.websocketServer.clients.forEach((client) => {
-    if (client.readyState === client.OPEN) {
-      client.send(stringifiedMessage);
-    }
-  });
-}
-
-// /create-room ルートを追加
-app.route({
-  method: "POST",
-  url: "/create-room",
-  handler: (request, reply) => {
-    try {
-      // 部屋を作成し、部屋情報を追加する
-      const { userId, username } = request.body as {
-        userId: string;
-        username: string;
-      };
-
+      // 新しい部屋を作成
+      const roomId = generateUUID();
       const room: Room = {
-        roomId: generateUUID(),
+        roomId,
         ownerId: userId,
-        users: [
-          {
-            userId: userId,
-            username: username,
-          },
-        ],
+        users: [],
       };
       rooms.push(room);
 
-      // レスポンスを返す
-      reply.send(room);
-    } catch (error) {
-      reply.status(500).send({ error: "Internal Server Error" });
-    }
-  },
-});
-
-// /join-room ルートを追加
-app.route({
-  method: "POST",
-  url: "/join-room",
-  handler: (request, reply) => {
-    try {
-      // 部屋を見つけるか作成し、ユーザーを部屋に追加する
-      const { roomId, userId, username } = request.body as {
-        roomId: string;
-        userId: string;
-        username: string;
-      };
-      let room: Room | undefined = rooms.find((r) => r.roomId === roomId);
-
-      if (!room) {
-        // 部屋が存在しない場合はエラーレスポンスを返す
-        reply.status(404).send({ error: "Room not found" });
-        return;
-      }
-
+      // ユーザーを作成
       const user: User = {
         userId,
         username,
       };
+
+      // ユーザーを作成した部屋に追加
       room.users.push(user);
 
-      // WebSocketを通じて他の参加者にユーザー一覧の更新を通知する
-      notifyRoomUserListUpdate(room);
-
-      // レスポンスを返す
-      reply.send(room);
-    } catch (error) {
-      reply.status(500).send({ error: "Internal Server Error" });
-    }
-  },
-});
-
-// WebSocket接続のハンドラ関数
-app.get(
-  "/room-users/:roomId/ws",
-  { websocket: true },
-  (connection, request) => {
-    const { roomId } = request.params as { roomId: string };
-
-    // 部屋を見つける
-    const room: Room | undefined = rooms.find((r) => r.roomId === roomId);
-
-    if (!room) {
-      // 部屋が存在しない場合はエラーレスポンスを返す
-      connection.socket.send(JSON.stringify({ error: "Room not found" }));
-      connection.socket.close();
-      return;
+      // 部屋作成成功メッセージを送信
+      connection.socket.send(
+        JSON.stringify({
+          type: "createRoomSuccess",
+          payload: {
+            roomId,
+            user,
+          },
+        })
+      );
     }
 
-    // WebSocket接続を確立したユーザーを部屋に追加する
-    const userId = generateUUID();
-    const username = `User ${userId.substr(0, 4)}`;
-    const user: User = {
-      userId,
-      username,
-    };
-    room.users.push(user);
+    // 部屋参加リクエスト
+    if (data.type === "joinRoom") {
+      const { roomId, userId, username } = data.payload;
 
-    // WebSocket接続のイベントハンドラを定義する
-    connection.socket.on("message", (message) => {
-      // メッセージを受信した場合の処理を記述する
-      // ここでは特に何も行わない
-    });
-
-    connection.socket.on("close", () => {
-      // WebSocket接続が閉じられた場合の処理を記述する
-      // 部屋からユーザーを削除し、他の参加者にユーザー一覧の更新を通知する
-      const index = room.users.findIndex((u) => u.userId === userId);
-      if (index !== -1) {
-        room.users.splice(index, 1);
-        notifyRoomUserListUpdate(room);
+      // ルームが存在するかチェック
+      const room = rooms.find((r) => r.roomId === roomId);
+      if (!room) {
+        // ルームが存在しない場合はエラーメッセージを送信
+        connection.socket.send(
+          JSON.stringify({
+            type: "error",
+            message: "Room not found",
+          })
+        );
+        return;
       }
-    });
 
-    // 初期接続時にユーザー一覧を送信する
-    const initialMessage = {
-      type: "initialUserList",
-      users: room.users,
-    };
-    connection.socket.send(JSON.stringify(initialMessage));
+      // ユーザーを作成
+      const user: User = {
+        userId,
+        username,
+      };
 
-    // 他の参加者にユーザー一覧の更新を通知する
-    notifyRoomUserListUpdate(room);
-  }
-);
+      // ユーザーをルームに追加
+      room.users.push(user);
+
+      // 部屋参加成功メッセージを送信
+      connection.socket.send(
+        JSON.stringify({
+          type: "joinRoomSuccess",
+          payload: {
+            roomId,
+            user,
+          },
+        })
+      );
+    }
+  });
+});
 
 // サーバーを起動する
 app.listen({ port: 8000 }, (err, address) => {
