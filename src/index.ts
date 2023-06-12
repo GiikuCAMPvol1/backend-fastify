@@ -29,9 +29,81 @@ function generateUUID(): string {
 }
 
 app.get("/", { websocket: true }, (connection, req) => {
-  console.log("fastify.get");
+  console.log("fastify websocket connection...");
   connection.socket.on("message", (message) => {
-    connection.socket.send("hi from server");
+    const data = JSON.parse(message.toString());
+
+    // 部屋作成リクエスト
+    if (data.type === "createRoom") {
+      const { userId, username } = data.payload;
+
+      // 新しい部屋を作成
+      const roomId = generateUUID();
+      const room: Room = {
+        roomId,
+        ownerId: userId,
+        users: [],
+      };
+      rooms.push(room);
+
+      // ユーザーを作成
+      const user: User = {
+        userId,
+        username,
+      };
+
+      // ユーザーを作成した部屋に追加
+      room.users.push(user);
+
+      // 部屋作成成功メッセージを送信
+      connection.socket.send(
+        JSON.stringify({
+          type: "createRoomSuccess",
+          payload: {
+            roomId,
+            user,
+          },
+        })
+      );
+    }
+
+    // 部屋参加リクエスト
+    if (data.type === "joinRoom") {
+      const { roomId, userId, username } = data.payload;
+
+      // ルームが存在するかチェック
+      const room = rooms.find((r) => r.roomId === roomId);
+      if (!room) {
+        // ルームが存在しない場合はエラーメッセージを送信
+        connection.socket.send(
+          JSON.stringify({
+            type: "error",
+            message: "Room not found",
+          })
+        );
+        return;
+      }
+
+      // ユーザーを作成
+      const user: User = {
+        userId,
+        username,
+      };
+
+      // ユーザーをルームに追加
+      room.users.push(user);
+
+      // 部屋参加成功メッセージを送信
+      connection.socket.send(
+        JSON.stringify({
+          type: "joinRoomSuccess",
+          payload: {
+            roomId,
+            user,
+          },
+        })
+      );
+    }
   });
 });
 
